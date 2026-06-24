@@ -210,17 +210,13 @@ function easeOutCubic(t) {
 function spin() {
   if (state.spinning || state.options.length < 2) return;
 
-  const startSpin = async () => {
+  if (state.soundEnabled) unlockAudioSync();
+
   state.spinning = true;
   state.highlightedIndex = -1;
   spinBtn.disabled = true;
   canvas.classList.add('spinning');
   wheelHint.textContent = 'Spinning…';
-
-  if (state.soundEnabled) {
-    await unlockAudio();
-    playSpinStartSound();
-  }
 
   const n = state.options.length;
   const segmentDeg = 360 / n;
@@ -238,7 +234,13 @@ function spin() {
   const startTime = performance.now();
 
   if (state.soundEnabled) {
-    scheduleSpinAudio({ durationMs: duration, segmentDeg, startRotation, totalRotation });
+    const spinSound = { durationMs: duration, segmentDeg, startRotation, totalRotation };
+    if (useMobileAudio()) {
+      scheduleMobileSpinAudio(spinSound);
+    } else {
+      playSpinStartSound();
+      scheduleSpinAudio(spinSound);
+    }
   }
 
   function animate(now) {
@@ -266,9 +268,6 @@ function spin() {
   }
 
   requestAnimationFrame(animate);
-  };
-
-  startSpin();
 }
 
 function showResult(winner) {
@@ -365,10 +364,90 @@ function clearActivePreset() {
   });
 }
 
-/* ── Sound (Web Audio API — browser frontend only) ─────────── */
+/* ── Sound ───────────────────────────────────────────────────── */
 let audioCtx = null;
-let audioUnlocked = false;
-const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+let mobileAudioUnlocked = false;
+let spinSoundTimeouts = [];
+const beepUriCache = new Map();
+
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isTouchDevice = isIOS || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+function useMobileAudio() {
+  return isTouchDevice;
+}
+
+function createBeepWavDataUri(frequency, durationSec, volume = 0.4) {
+  const sampleRate = 22050;
+  const numSamples = Math.floor(sampleRate * durationSec);
+  const dataLength = numSamples * 2;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const attack = Math.min(1, t * 30);
+    const release = Math.min(1, (durationSec - t) * 30);
+    const sample = Math.sin(2 * Math.PI * frequency * t) * volume * attack * release;
+    view.setInt16(44 + i * 2, sample * 0x7fff, true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
+function getBeepUri(frequency, durationSec, volume = 0.4) {
+  const key = `${Math.round(frequency)}-${durationSec}-${volume}`;
+  if (!beepUriCache.has(key)) {
+    beepUriCache.set(key, createBeepWavDataUri(frequency, durationSec, volume));
+  }
+  return beepUriCache.get(key);
+}
+
+function playMobileBeep(frequency, durationSec = 0.08, volume = 0.5) {
+  if (!state.soundEnabled) return;
+  const audio = new Audio(getBeepUri(frequency, durationSec, volume));
+  audio.volume = 1;
+  audio.setAttribute('playsinline', '');
+  audio.play().catch(() => {});
+}
+
+function unlockAudioSync() {
+  if (useMobileAudio() && !mobileAudioUnlocked) {
+    const audio = new Audio(getBeepUri(440, 0.05, 0.02));
+    audio.volume = 0.01;
+    audio.setAttribute('playsinline', '');
+    audio.play().then(() => {
+      audio.pause();
+      mobileAudioUnlocked = true;
+    }).catch(() => {});
+    mobileAudioUnlocked = true;
+  }
+
+  const ac = getAudioCtx();
+  if (ac?.state === 'suspended') ac.resume().catch(() => {});
+}
 
 function getAudioCtx() {
   if (!audioCtx) {
@@ -379,33 +458,45 @@ function getAudioCtx() {
   return audioCtx;
 }
 
-async function unlockAudio() {
-  const ac = getAudioCtx();
-  if (!ac) return false;
+function clearSpinSoundTimeouts() {
+  spinSoundTimeouts.forEach(clearTimeout);
+  spinSoundTimeouts = [];
+}
 
-  try {
-    if (ac.state === 'suspended') await ac.resume();
+function scheduleMobileSpinAudio({ durationMs, segmentDeg, startRotation, totalRotation }) {
+  clearSpinSoundTimeouts();
+  playMobileBeep(280, 0.1, 0.55);
 
-    // iOS/Safari: play a silent buffer so later scheduled sounds work
-    const buffer = ac.createBuffer(1, 1, ac.sampleRate);
-    const source = ac.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ac.destination);
-    source.start(0);
-    source.stop(ac.currentTime + 0.001);
-  } catch {
-    // Ignore unlock errors; resume may still succeed
+  let lastSeg = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
+  const steps = Math.ceil(durationMs / 40);
+
+  for (let i = 0; i <= steps; i++) {
+    const progress = i / steps;
+    const eased = easeOutCubic(progress);
+    const rot = startRotation + (totalRotation - startRotation) * eased;
+    const norm = ((rot % 360) + 360) % 360;
+    const seg = Math.floor(norm / segmentDeg);
+
+    if (seg !== lastSeg) {
+      lastSeg = seg;
+      const delay = progress * durationMs;
+      const freq = 480 + Math.random() * 120;
+      spinSoundTimeouts.push(setTimeout(() => playMobileBeep(freq, 0.07, 0.45), delay));
+    }
   }
 
-  audioUnlocked = ac.state === 'running';
-  return audioUnlocked;
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+    spinSoundTimeouts.push(setTimeout(
+      () => playMobileBeep(freq, 0.28, 0.55),
+      durationMs + 400 + i * 100,
+    ));
+  });
 }
 
 function playToneAt(when, { frequency, duration = 0.12, volume = 0.2, type = 'sine' }) {
   const ac = getAudioCtx();
   if (!ac || !state.soundEnabled) return;
 
-  const vol = isTouchDevice ? Math.min(volume * 1.5, 0.45) : volume;
   const oscillator = ac.createOscillator();
   const gainNode = ac.createGain();
   oscillator.connect(gainNode);
@@ -415,21 +506,17 @@ function playToneAt(when, { frequency, duration = 0.12, volume = 0.2, type = 'si
   oscillator.frequency.value = frequency;
 
   gainNode.gain.setValueAtTime(0.0001, when);
-  gainNode.gain.linearRampToValueAtTime(vol, when + 0.008);
+  gainNode.gain.linearRampToValueAtTime(volume, when + 0.008);
   gainNode.gain.linearRampToValueAtTime(0.0001, when + duration);
 
   oscillator.start(when);
   oscillator.stop(when + duration + 0.02);
 }
 
-function playToneNow(options) {
+function playSpinStartSound() {
   const ac = getAudioCtx();
   if (!ac || ac.state !== 'running' || !state.soundEnabled) return;
-  playToneAt(ac.currentTime, options);
-}
-
-function playSpinStartSound() {
-  playToneNow({ frequency: 280, duration: 0.1, volume: 0.22, type: 'triangle' });
+  playToneAt(ac.currentTime, { frequency: 280, duration: 0.1, volume: 0.22, type: 'triangle' });
 }
 
 function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotation }) {
@@ -468,6 +555,16 @@ function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotatio
       type: 'sine',
     });
   });
+}
+
+function playTestSound() {
+  unlockAudioSync();
+  if (useMobileAudio()) {
+    playMobileBeep(440, 0.15, 0.6);
+  } else {
+    const ac = getAudioCtx();
+    if (ac) ac.resume().then(() => playSpinStartSound());
+  }
 }
 
 /* ── Confetti ────────────────────────────────────────────────── */
@@ -574,8 +671,17 @@ addForm.addEventListener('submit', (e) => {
   optionInput.focus();
 });
 
-spinBtn.addEventListener('click', spin);
-spinBtn.addEventListener('touchstart', () => { unlockAudio(); }, { passive: true });
+let lastTouchSpinAt = 0;
+
+spinBtn.addEventListener('touchend', () => {
+  lastTouchSpinAt = Date.now();
+  if (state.soundEnabled) unlockAudioSync();
+  spin();
+}, { passive: true });
+spinBtn.addEventListener('click', () => {
+  if (Date.now() - lastTouchSpinAt < 500) return;
+  spin();
+});
 clearBtn.addEventListener('click', clearOptions);
 closeModalBtn.addEventListener('click', closeModal);
 spinAgainBtn.addEventListener('click', () => {
@@ -595,21 +701,14 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-soundToggle.addEventListener('click', async () => {
+soundToggle.addEventListener('click', () => {
   state.soundEnabled = !state.soundEnabled;
   soundToggle.setAttribute('aria-pressed', String(state.soundEnabled));
-  if (state.soundEnabled) {
-    await unlockAudio();
-    playSpinStartSound();
-  }
+  if (state.soundEnabled) playTestSound();
 });
-soundToggle.addEventListener('touchstart', () => { unlockAudio(); }, { passive: true });
+soundToggle.addEventListener('touchstart', () => unlockAudioSync(), { passive: true });
 
-function primeAudioOnInteraction() {
-  unlockAudio();
-}
-document.addEventListener('touchstart', primeAudioOnInteraction, { once: true, passive: true });
-document.addEventListener('pointerdown', primeAudioOnInteraction, { once: true });
+document.addEventListener('touchstart', unlockAudioSync, { once: true, passive: true });
 
 window.addEventListener('resize', () => drawWheel());
 
