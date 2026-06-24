@@ -48,6 +48,8 @@ const closeModalBtn = document.getElementById('closeModalBtn');
 const soundToggle = document.getElementById('soundToggle');
 const confettiCanvas = document.getElementById('confettiCanvas');
 const exampleChips = document.getElementById('exampleChips');
+const mobileTabs = document.getElementById('mobileTabs');
+const tabOptionCount = document.getElementById('tabOptionCount');
 
 function getSegmentAngle() {
   return (2 * Math.PI) / state.options.length;
@@ -304,6 +306,7 @@ function renderOptionsList() {
 
   const count = state.options.length;
   optionCount.textContent = count;
+  if (tabOptionCount) tabOptionCount.textContent = count;
   clearBtn.disabled = count === 0;
   spinBtn.disabled = count < 2 || state.spinning;
   wheelHint.textContent = count < 2
@@ -326,6 +329,7 @@ function addOption(text) {
   clearActivePreset();
   renderOptionsList();
   drawWheel();
+  switchMobilePanel('options');
 }
 
 function removeOption(index) {
@@ -500,10 +504,27 @@ function animateConfetti() {
   }
 }
 
+function switchMobilePanel(panel) {
+  if (!mobileTabs || window.matchMedia('(min-width: 900px)').matches) return;
+  mobileTabs.querySelectorAll('.mobile-tab').forEach((tab) => {
+    tab.classList.toggle('is-active', tab.dataset.panel === panel);
+  });
+  document.querySelectorAll('.wheel-stage, .options-panel').forEach((el) => {
+    el.classList.toggle('is-active', el.dataset.panel === panel);
+  });
+}
+
 exampleChips?.addEventListener('click', (e) => {
   const chip = e.target.closest('.example-chip');
   if (!chip) return;
   loadPreset(chip.dataset.preset);
+  switchMobilePanel('options');
+});
+
+mobileTabs?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.mobile-tab');
+  if (!tab) return;
+  switchMobilePanel(tab.dataset.panel);
 });
 
 /* ── Event listeners ─────────────────────────────────────────── */

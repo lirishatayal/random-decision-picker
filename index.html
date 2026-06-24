@@ -63,8 +63,30 @@
       </div>
     </header>
 
+    <nav class="mobile-tabs" id="mobileTabs" aria-label="Switch view">
+      <button type="button" class="mobile-tab is-active" data-panel="wheel" id="tabWheel">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+        </svg>
+        Wheel
+      </button>
+      <button type="button" class="mobile-tab" data-panel="options" id="tabOptions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <circle cx="4" cy="6" r="1" fill="currentColor"/>
+          <circle cx="4" cy="12" r="1" fill="currentColor"/>
+          <circle cx="4" cy="18" r="1" fill="currentColor"/>
+        </svg>
+        Options
+        <span class="tab-badge" id="tabOptionCount">0</span>
+      </button>
+    </nav>
+
     <main class="main-layout">
-      <section class="wheel-stage glass-surface" aria-label="Spinning wheel">
+      <section class="wheel-stage glass-surface is-active" data-panel="wheel" aria-label="Spinning wheel">
         <div class="wheel-stage-glow" aria-hidden="true"></div>
         <div class="wheel-wrap">
           <div class="pointer" aria-hidden="true">
@@ -104,7 +126,7 @@
         </div>
       </section>
 
-      <aside class="options-panel glass-surface">
+      <aside class="options-panel glass-surface" data-panel="options">
         <div class="panel-header">
           <div>
             <h2>Your Options</h2>
