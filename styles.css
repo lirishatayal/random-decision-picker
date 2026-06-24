@@ -967,6 +967,26 @@ body {
 @media (max-width: 899px) {
   .quick-steps { display: none; }
 
+  html {
+    height: auto;
+  }
+
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100dvh;
+    max-height: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100dvh;
+    max-height: none;
+    overflow: visible;
+  }
+
   .mobile-tabs {
     display: flex;
     gap: 0.5rem;
@@ -977,13 +997,22 @@ body {
   .main-layout {
     grid-template-rows: 1fr;
     grid-template-columns: 1fr;
+    overflow: visible;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .wheel-stage,
   .options-panel {
     display: none;
     min-height: 0;
-    height: 100%;
+    height: auto;
+    max-height: calc(100dvh - 6.75rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
   }
 
   .wheel-stage.is-active,
@@ -991,13 +1020,21 @@ body {
     display: flex;
   }
 
-  .wheel-wrap {
-    width: min(72vw, 300px);
-    height: min(72vw, 300px);
+  .options-panel {
+    overflow-y: auto;
   }
 
   .options-list {
-    min-height: 8rem;
+    flex: none;
+    min-height: auto;
+    overflow-y: visible;
+    max-height: none;
+  }
+
+  .wheel-wrap {
+    width: min(72vw, 300px);
+    height: min(72vw, 300px);
+    flex-shrink: 0;
   }
 
   .remove-btn {
