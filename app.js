@@ -236,7 +236,10 @@ function spin() {
   const duration = 4200 + Math.random() * 800;
   const startRotation = state.rotation;
   const startTime = performance.now();
-  let lastTickSegment = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
+
+  if (state.soundEnabled) {
+    scheduleSpinAudio({ durationMs: duration, segmentDeg, startRotation, totalRotation });
+  }
 
   function animate(now) {
     const elapsed = now - startTime;
@@ -244,16 +247,6 @@ function spin() {
     const eased = easeOutCubic(progress);
 
     state.rotation = startRotation + (totalRotation - startRotation) * eased;
-
-    if (state.soundEnabled) {
-      const norm = ((state.rotation % 360) + 360) % 360;
-      const currentSegment = Math.floor(norm / segmentDeg);
-      if (currentSegment !== lastTickSegment) {
-        lastTickSegment = currentSegment;
-        playSpinTickSound();
-      }
-    }
-
     drawWheel();
 
     if (progress < 1) {
@@ -282,7 +275,6 @@ function showResult(winner) {
   resultText.textContent = winner;
   resultModal.hidden = false;
   launchConfetti();
-  if (state.soundEnabled) unlockAudio().then(() => playWinSound());
 }
 
 function closeModal() {
@@ -376,6 +368,7 @@ function clearActivePreset() {
 /* ── Sound (Web Audio API — browser frontend only) ─────────── */
 let audioCtx = null;
 let audioUnlocked = false;
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 function getAudioCtx() {
   if (!audioCtx) {
@@ -389,15 +382,30 @@ function getAudioCtx() {
 async function unlockAudio() {
   const ac = getAudioCtx();
   if (!ac) return false;
-  if (ac.state === 'suspended') await ac.resume();
+
+  try {
+    if (ac.state === 'suspended') await ac.resume();
+
+    // iOS/Safari: play a silent buffer so later scheduled sounds work
+    const buffer = ac.createBuffer(1, 1, ac.sampleRate);
+    const source = ac.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ac.destination);
+    source.start(0);
+    source.stop(ac.currentTime + 0.001);
+  } catch {
+    // Ignore unlock errors; resume may still succeed
+  }
+
   audioUnlocked = ac.state === 'running';
   return audioUnlocked;
 }
 
-function playTone({ frequency, duration = 0.12, volume = 0.2, type = 'sine', delay = 0 }) {
+function playToneAt(when, { frequency, duration = 0.12, volume = 0.2, type = 'sine' }) {
   const ac = getAudioCtx();
-  if (!ac || ac.state !== 'running') return;
+  if (!ac || !state.soundEnabled) return;
 
+  const vol = isTouchDevice ? Math.min(volume * 1.5, 0.45) : volume;
   const oscillator = ac.createOscillator();
   const gainNode = ac.createGain();
   oscillator.connect(gainNode);
@@ -406,28 +414,59 @@ function playTone({ frequency, duration = 0.12, volume = 0.2, type = 'sine', del
   oscillator.type = type;
   oscillator.frequency.value = frequency;
 
-  const start = ac.currentTime + delay;
-  const end = start + duration;
-  gainNode.gain.setValueAtTime(0.0001, start);
-  gainNode.gain.linearRampToValueAtTime(volume, start + 0.01);
-  gainNode.gain.linearRampToValueAtTime(0.0001, end);
+  gainNode.gain.setValueAtTime(0.0001, when);
+  gainNode.gain.linearRampToValueAtTime(vol, when + 0.008);
+  gainNode.gain.linearRampToValueAtTime(0.0001, when + duration);
 
-  oscillator.start(start);
-  oscillator.stop(end + 0.02);
+  oscillator.start(when);
+  oscillator.stop(when + duration + 0.02);
+}
+
+function playToneNow(options) {
+  const ac = getAudioCtx();
+  if (!ac || ac.state !== 'running' || !state.soundEnabled) return;
+  playToneAt(ac.currentTime, options);
 }
 
 function playSpinStartSound() {
-  playTone({ frequency: 280, duration: 0.1, volume: 0.18, type: 'triangle' });
+  playToneNow({ frequency: 280, duration: 0.1, volume: 0.22, type: 'triangle' });
 }
 
-function playSpinTickSound() {
-  playTone({ frequency: 520 + Math.random() * 80, duration: 0.04, volume: 0.12, type: 'square' });
-}
+function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotation }) {
+  const ac = getAudioCtx();
+  if (!ac || ac.state !== 'running' || !state.soundEnabled) return;
 
-function playWinSound() {
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-  notes.forEach((freq, i) => {
-    playTone({ frequency: freq, duration: 0.22, volume: 0.22, type: 'sine', delay: i * 0.1 });
+  const base = ac.currentTime;
+  const durationSec = durationMs / 1000;
+  let lastSeg = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
+  const steps = Math.ceil(durationMs / 40);
+
+  for (let i = 0; i <= steps; i++) {
+    const progress = i / steps;
+    const eased = easeOutCubic(progress);
+    const rot = startRotation + (totalRotation - startRotation) * eased;
+    const norm = ((rot % 360) + 360) % 360;
+    const seg = Math.floor(norm / segmentDeg);
+
+    if (seg !== lastSeg) {
+      lastSeg = seg;
+      playToneAt(base + progress * durationSec, {
+        frequency: 480 + Math.random() * 120,
+        duration: 0.05,
+        volume: 0.16,
+        type: 'triangle',
+      });
+    }
+  }
+
+  const winAt = base + durationSec + 0.4;
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+    playToneAt(winAt + i * 0.1, {
+      frequency: freq,
+      duration: 0.28,
+      volume: 0.28,
+      type: 'sine',
+    });
   });
 }
 
@@ -536,6 +575,7 @@ addForm.addEventListener('submit', (e) => {
 });
 
 spinBtn.addEventListener('click', spin);
+spinBtn.addEventListener('touchstart', () => { unlockAudio(); }, { passive: true });
 clearBtn.addEventListener('click', clearOptions);
 closeModalBtn.addEventListener('click', closeModal);
 spinAgainBtn.addEventListener('click', () => {
@@ -563,13 +603,13 @@ soundToggle.addEventListener('click', async () => {
     playSpinStartSound();
   }
 });
+soundToggle.addEventListener('touchstart', () => { unlockAudio(); }, { passive: true });
 
 function primeAudioOnInteraction() {
-  unlockAudio().then((ok) => {
-    if (ok) document.removeEventListener('pointerdown', primeAudioOnInteraction);
-  });
+  unlockAudio();
 }
-document.addEventListener('pointerdown', primeAudioOnInteraction, { once: false });
+document.addEventListener('touchstart', primeAudioOnInteraction, { once: true, passive: true });
+document.addEventListener('pointerdown', primeAudioOnInteraction, { once: true });
 
 window.addEventListener('resize', () => drawWheel());
 
