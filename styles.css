@@ -558,6 +558,17 @@ body {
   font-size: 0.75rem;
   color: var(--text-3);
   text-align: center;
+  transition: color 0.15s ease, font-size 0.15s ease;
+}
+
+.wheel-hint.is-winner {
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: var(--text);
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* ── Options panel ───────────────────────────────────────────── */
@@ -1044,6 +1055,16 @@ body {
     background: rgba(251,113,133,0.08);
     border: 1px solid rgba(251,113,133,0.2);
     color: #fb7185;
+  }
+
+  .modal-overlay,
+  .modal,
+  .modal-icon {
+    animation: none;
+  }
+
+  .wheel-hint.is-winner {
+    font-size: 1.25rem;
   }
 }
 
