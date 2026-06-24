@@ -384,6 +384,50 @@ function useMobileAudio() {
   return isTouchDevice;
 }
 
+function createWheelClickWavDataUri(volume = 0.45) {
+  const sampleRate = 44100;
+  const durationSec = 0.028;
+  const numSamples = Math.floor(sampleRate * durationSec);
+  const dataLength = numSamples * 2;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+
+  const pingFreq = 980 + Math.random() * 80;
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const decay = Math.exp(-t * 95);
+    const noise = (Math.random() * 2 - 1) * 0.55 * decay;
+    const ping = Math.sin(2 * Math.PI * pingFreq * t) * decay * 0.65;
+    const thump = Math.sin(2 * Math.PI * 180 * t) * Math.exp(-t * 55) * 0.25;
+    const sample = (noise + ping + thump) * volume;
+    view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
 function createBeepWavDataUri(frequency, durationSec, volume = 0.4) {
   const sampleRate = 44100;
   const numSamples = Math.floor(sampleRate * durationSec);
@@ -424,6 +468,14 @@ function createBeepWavDataUri(frequency, durationSec, volume = 0.4) {
   return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
+function getWheelClickUri() {
+  const key = 'wheel-click';
+  if (!beepUriCache.has(key)) {
+    beepUriCache.set(key, createWheelClickWavDataUri());
+  }
+  return beepUriCache.get(key);
+}
+
 function getBeepUri(frequency, durationSec, volume = 0.4) {
   const key = `${Math.round(frequency)}-${durationSec}-${volume}`;
   if (!beepUriCache.has(key)) {
@@ -432,40 +484,53 @@ function getBeepUri(frequency, durationSec, volume = 0.4) {
   return beepUriCache.get(key);
 }
 
-const MOBILE_TONES = {
-  start: [340, 0.08, 0.12],
-  tick: [500, 0.03, 0.08],
-  win: [659, 0.2, 0.14],
-  win2: [784, 0.16, 0.1],
-};
+const WIN_TONES = [
+  [523.25, 0.18, 0.16],
+  [659.25, 0.2, 0.14],
+  [783.99, 0.22, 0.12],
+];
 
-const mobileAudioPool = [new Audio(), new Audio()];
+const mobileAudioPool = [new Audio(), new Audio(), new Audio(), new Audio()];
 let mobilePoolIndex = 0;
+const wheelClickUri = getWheelClickUri();
 
 mobileAudioPool.forEach((audio) => {
   audio.setAttribute('playsinline', '');
   audio.preload = 'auto';
+  audio.src = wheelClickUri;
 });
 
-function playMobileTone(type) {
+function playMobileWheelClick(volume = 0.65) {
   if (!state.soundEnabled) return;
-  const tone = MOBILE_TONES[type];
-  if (!tone) return;
-
-  const [frequency, durationSec, volume] = tone;
   const audio = mobileAudioPool[mobilePoolIndex % mobileAudioPool.length];
   mobilePoolIndex += 1;
-
   audio.pause();
   audio.currentTime = 0;
-  audio.src = getBeepUri(frequency, durationSec, volume);
-  audio.volume = 0.7;
+  audio.volume = volume;
   audio.play().catch(() => {});
+}
+
+function playMobileWinChime() {
+  if (!state.soundEnabled) return;
+  WIN_TONES.forEach(([frequency, durationSec, vol], i) => {
+    const audio = mobileAudioPool[(mobilePoolIndex + i) % mobileAudioPool.length];
+    setTimeout(() => {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = getBeepUri(frequency, durationSec, vol);
+      audio.volume = 0.75;
+      audio.play().catch(() => {});
+      audio.addEventListener('ended', () => {
+        audio.src = wheelClickUri;
+      }, { once: true });
+    }, i * 110);
+    mobilePoolIndex += 1;
+  });
 }
 
 function unlockAudioSync() {
   if (useMobileAudio() && !mobileAudioUnlocked) {
-    const audio = new Audio(getBeepUri(440, 0.05, 0.02));
+    const audio = new Audio(wheelClickUri);
     audio.volume = 0.01;
     audio.setAttribute('playsinline', '');
     audio.play().then(() => {
@@ -493,19 +558,66 @@ function clearSpinSoundTimeouts() {
   spinSoundTimeouts = [];
 }
 
-function scheduleMobileSpinAudio({ durationMs }) {
-  clearSpinSoundTimeouts();
-  playMobileTone('start');
+function computeWheelClickSchedule({ durationMs, segmentDeg, startRotation, totalRotation }) {
+  const clicks = [];
+  const steps = Math.ceil(durationMs / 16);
+  let lastSeg = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
 
-  [0.3, 0.55, 0.8].forEach((progress) => {
-    spinSoundTimeouts.push(setTimeout(
-      () => playMobileTone('tick'),
-      progress * durationMs,
-    ));
+  for (let i = 0; i <= steps; i++) {
+    const progress = i / steps;
+    const eased = easeOutCubic(progress);
+    const rot = startRotation + (totalRotation - startRotation) * eased;
+    const norm = ((rot % 360) + 360) % 360;
+    const seg = Math.floor(norm / segmentDeg);
+
+    if (seg !== lastSeg) {
+      lastSeg = seg;
+      const vol = 0.45 + (1 - progress) * 0.35;
+      clicks.push({ atMs: progress * durationMs, volume: vol });
+    }
+  }
+
+  return clicks;
+}
+
+function scheduleMobileSpinAudio(spinSound) {
+  clearSpinSoundTimeouts();
+  const { durationMs } = spinSound;
+  const clicks = computeWheelClickSchedule(spinSound);
+
+  clicks.forEach(({ atMs, volume }) => {
+    spinSoundTimeouts.push(setTimeout(() => playMobileWheelClick(volume), atMs));
   });
 
-  spinSoundTimeouts.push(setTimeout(() => playMobileTone('win'), durationMs));
-  spinSoundTimeouts.push(setTimeout(() => playMobileTone('win2'), durationMs + 200));
+  spinSoundTimeouts.push(setTimeout(() => playMobileWinChime(), durationMs + 40));
+}
+
+function playWheelClickAt(when, volume = 0.22) {
+  const ac = getAudioCtx();
+  if (!ac || !state.soundEnabled) return;
+
+  const clickLen = 0.028;
+  const bufferSize = Math.ceil(ac.sampleRate * clickLen);
+  const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+  const data = buffer.getChannelData(0);
+
+  for (let i = 0; i < bufferSize; i++) {
+    const t = i / ac.sampleRate;
+    const decay = Math.exp(-t * 95);
+    data[i] = (Math.random() * 2 - 1) * 0.55 * decay
+      + Math.sin(2 * Math.PI * (980 + Math.random() * 80) * t) * decay * 0.65
+      + Math.sin(2 * Math.PI * 180 * t) * Math.exp(-t * 55) * 0.25;
+  }
+
+  const noise = ac.createBufferSource();
+  noise.buffer = buffer;
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(volume, when);
+  gain.gain.exponentialRampToValueAtTime(0.001, when + clickLen);
+  noise.connect(gain);
+  gain.connect(ac.destination);
+  noise.start(when);
+  noise.stop(when + clickLen + 0.01);
 }
 
 function playToneAt(when, { frequency, duration = 0.12, volume = 0.2, type = 'sine' }) {
@@ -531,42 +643,28 @@ function playToneAt(when, { frequency, duration = 0.12, volume = 0.2, type = 'si
 function playSpinStartSound() {
   const ac = getAudioCtx();
   if (!ac || ac.state !== 'running' || !state.soundEnabled) return;
-  playToneAt(ac.currentTime, { frequency: 280, duration: 0.1, volume: 0.22, type: 'triangle' });
+  playWheelClickAt(ac.currentTime, 0.35);
 }
 
-function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotation }) {
+function scheduleSpinAudio(spinSound) {
   const ac = getAudioCtx();
   if (!ac || ac.state !== 'running' || !state.soundEnabled) return;
 
+  const { durationMs } = spinSound;
   const base = ac.currentTime;
   const durationSec = durationMs / 1000;
-  let lastSeg = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
-  const steps = Math.ceil(durationMs / 40);
+  const clicks = computeWheelClickSchedule(spinSound);
 
-  for (let i = 0; i <= steps; i++) {
-    const progress = i / steps;
-    const eased = easeOutCubic(progress);
-    const rot = startRotation + (totalRotation - startRotation) * eased;
-    const norm = ((rot % 360) + 360) % 360;
-    const seg = Math.floor(norm / segmentDeg);
+  clicks.forEach(({ atMs, volume }) => {
+    playWheelClickAt(base + atMs / 1000, volume * 0.55);
+  });
 
-    if (seg !== lastSeg) {
-      lastSeg = seg;
-      playToneAt(base + progress * durationSec, {
-        frequency: 480 + Math.random() * 120,
-        duration: 0.05,
-        volume: 0.16,
-        type: 'triangle',
-      });
-    }
-  }
-
-  const winAt = base + durationSec + 0.03;
-  [523.25, 659.25, 783.99].forEach((freq, i) => {
-    playToneAt(winAt + i * 0.12, {
+  const winAt = base + durationSec + 0.04;
+  WIN_TONES.forEach(([freq, dur, vol], i) => {
+    playToneAt(winAt + i * 0.11, {
       frequency: freq,
-      duration: 0.2,
-      volume: 0.22,
+      duration: dur,
+      volume: vol,
       type: 'sine',
     });
   });
@@ -575,7 +673,7 @@ function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotatio
 function playTestSound() {
   unlockAudioSync();
   if (useMobileAudio()) {
-    playMobileTone('start');
+    playMobileWheelClick(0.6);
   } else {
     const ac = getAudioCtx();
     if (ac) ac.resume().then(() => playSpinStartSound());
@@ -728,7 +826,8 @@ document.addEventListener('touchstart', unlockAudioSync, { once: true, passive: 
 window.addEventListener('resize', () => drawWheel());
 
 /* ── Init ────────────────────────────────────────────────────── */
-Object.values(MOBILE_TONES).forEach(([freq, dur, vol]) => getBeepUri(freq, dur, vol));
+getWheelClickUri();
+WIN_TONES.forEach(([freq, dur, vol]) => getBeepUri(freq, dur, vol));
 renderOptionsList();
 drawWheel();
 setActivePreset('dinner');
