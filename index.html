@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Random Decision Picker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-scene" aria-hidden="true">
+    <div class="bg-mesh"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+    <div class="bg-noise"></div>
+  </div>
+
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+            <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-row">
+            <h1>Decision Picker</h1>
+            <span class="brand-badge">Free tool</span>
+          </div>
+          <p class="subtitle">Can't decide? Add options, spin the wheel — meals, teams, movies & more.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <nav class="quick-steps" aria-label="How it works">
+          <span class="quick-step"><em>1</em> Add</span>
+          <span class="quick-step"><em>2</em> Spin</span>
+          <span class="quick-step"><em>3</em> Win</span>
+        </nav>
+        <button class="sound-toggle" id="soundToggle" type="button" aria-pressed="true" title="Toggle sound effects">
+          <span class="sound-toggle-inner">
+            <svg class="icon-sound-on" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+            </svg>
+            <svg class="icon-sound-off" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <line x1="23" y1="9" x2="17" y2="15"/>
+              <line x1="17" y1="9" x2="23" y2="15"/>
+            </svg>
+            <span class="sound-label">Sound on</span>
+          </span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-layout">
+      <section class="wheel-stage glass-surface" aria-label="Spinning wheel">
+        <div class="wheel-stage-glow" aria-hidden="true"></div>
+        <div class="wheel-wrap">
+          <div class="pointer" aria-hidden="true">
+            <svg class="pointer-svg" width="36" height="44" viewBox="0 0 36 44" fill="none">
+              <defs>
+                <linearGradient id="pointerGrad" x1="18" y1="0" x2="18" y2="44" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#fff"/>
+                  <stop offset="1" stop-color="#c4b5fd"/>
+                </linearGradient>
+                <filter id="pointerShadow" x="-50%" y="-20%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#8b5cf6" flood-opacity="0.5"/>
+                </filter>
+              </defs>
+              <path d="M18 2 L34 38 Q18 32 2 38 Z" fill="url(#pointerGrad)" filter="url(#pointerShadow)"/>
+              <circle cx="18" cy="6" r="3" fill="white" opacity="0.9"/>
+            </svg>
+          </div>
+          <div class="wheel-outer-ring" aria-hidden="true"></div>
+          <div class="wheel-ring">
+            <canvas id="wheelCanvas" width="460" height="460" role="img" aria-label="Decision wheel"></canvas>
+          </div>
+          <div class="wheel-platform" aria-hidden="true"></div>
+        </div>
+
+        <div class="wheel-actions">
+          <button class="spin-btn" id="spinBtn" type="button" disabled>
+            <span class="spin-btn-bg" aria-hidden="true"></span>
+            <span class="spin-btn-content">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-3-6.7"/>
+                <polyline points="21 3 21 9 15 9"/>
+              </svg>
+              Spin the Wheel
+            </span>
+          </button>
+          <p class="wheel-hint" id="wheelHint">Add at least 2 options to start spinning</p>
+        </div>
+      </section>
+
+      <aside class="options-panel glass-surface">
+        <div class="panel-header">
+          <div>
+            <h2>Your Options</h2>
+            <p class="panel-desc">Build your wheel below</p>
+          </div>
+          <span class="option-count" id="optionCount">0</span>
+        </div>
+
+        <div class="examples-section">
+          <p class="section-label">Quick start</p>
+          <div class="example-chips" id="exampleChips">
+            <button class="example-chip" type="button" data-preset="dinner">
+              <span class="chip-emoji">🍕</span> Dinner
+            </button>
+            <button class="example-chip" type="button" data-preset="movie">
+              <span class="chip-emoji">🎬</span> Movie
+            </button>
+            <button class="example-chip" type="button" data-preset="team">
+              <span class="chip-emoji">🎲</span> Who first?
+            </button>
+            <button class="example-chip" type="button" data-preset="weekend">
+              <span class="chip-emoji">🌿</span> Weekend
+            </button>
+          </div>
+        </div>
+
+        <form class="add-form" id="addForm">
+          <div class="input-field">
+            <input
+              type="text"
+              id="optionInput"
+              placeholder="Type an option…"
+              maxlength="40"
+              autocomplete="off"
+              aria-label="New option"
+            />
+          </div>
+          <button class="add-btn" type="submit" aria-label="Add option">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </form>
+
+        <ul class="options-list" id="optionsList" aria-live="polite"></ul>
+
+        <div class="panel-footer">
+          <button class="clear-btn" id="clearBtn" type="button" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            </svg>
+            Clear all
+          </button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="resultModal" hidden>
+    <div class="modal glass-surface" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+      <div class="modal-glow" aria-hidden="true"></div>
+      <div class="modal-icon" aria-hidden="true">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentColor" stroke="none" opacity="0.9"/>
+        </svg>
+      </div>
+      <p class="modal-eyebrow" id="resultTitle">The wheel has spoken</p>
+      <p class="modal-result" id="resultText"></p>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-primary" id="spinAgainBtn" type="button">Spin Again</button>
+        <button class="modal-btn modal-btn-secondary" id="closeModalBtn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="confettiCanvas" aria-hidden="true"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
