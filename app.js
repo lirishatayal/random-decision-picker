@@ -50,6 +50,7 @@ const confettiCanvas = document.getElementById('confettiCanvas');
 const exampleChips = document.getElementById('exampleChips');
 const mobileTabs = document.getElementById('mobileTabs');
 const tabOptionCount = document.getElementById('tabOptionCount');
+const backToWheelBtn = document.getElementById('backToWheelBtn');
 
 function getSegmentAngle() {
   return (2 * Math.PI) / state.options.length;
@@ -211,6 +212,8 @@ function spin() {
   if (state.spinning || state.options.length < 2) return;
 
   if (state.soundEnabled) unlockAudioSync();
+
+  switchMobilePanel('wheel');
 
   state.spinning = true;
   state.highlightedIndex = -1;
@@ -753,14 +756,38 @@ function animateConfetti() {
   }
 }
 
+function isMobileLayout() {
+  return window.matchMedia('(max-width: 899px)').matches;
+}
+
+function resetMobileScroll() {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  document.querySelector('.main-layout')?.scrollTo(0, 0);
+  document.querySelectorAll('.wheel-stage, .options-panel').forEach((el) => {
+    el.scrollTop = 0;
+  });
+}
+
 function switchMobilePanel(panel) {
-  if (!mobileTabs || window.matchMedia('(min-width: 900px)').matches) return;
+  if (!mobileTabs || !isMobileLayout()) return;
+
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+
   mobileTabs.querySelectorAll('.mobile-tab').forEach((tab) => {
     tab.classList.toggle('is-active', tab.dataset.panel === panel);
   });
   document.querySelectorAll('.wheel-stage, .options-panel').forEach((el) => {
-    el.classList.toggle('is-active', el.dataset.panel === panel);
+    const isActive = el.dataset.panel === panel;
+    el.classList.toggle('is-active', isActive);
+    if (isActive) el.scrollTop = 0;
   });
+
+  resetMobileScroll();
+  requestAnimationFrame(resetMobileScroll);
 }
 
 exampleChips?.addEventListener('click', (e) => {
@@ -776,12 +803,14 @@ mobileTabs?.addEventListener('click', (e) => {
   switchMobilePanel(tab.dataset.panel);
 });
 
+backToWheelBtn?.addEventListener('click', () => switchMobilePanel('wheel'));
+
 /* ── Event listeners ─────────────────────────────────────────── */
 addForm.addEventListener('submit', (e) => {
   e.preventDefault();
   addOption(optionInput.value);
   optionInput.value = '';
-  optionInput.focus();
+  if (!isMobileLayout()) optionInput.focus();
 });
 
 let lastTouchSpinAt = 0;
@@ -824,6 +853,14 @@ soundToggle.addEventListener('touchstart', () => unlockAudioSync(), { passive: t
 document.addEventListener('touchstart', unlockAudioSync, { once: true, passive: true });
 
 window.addEventListener('resize', () => drawWheel());
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (isMobileLayout() && document.activeElement !== optionInput) {
+      resetMobileScroll();
+    }
+  });
+}
 
 /* ── Init ────────────────────────────────────────────────────── */
 getWheelClickUri();
