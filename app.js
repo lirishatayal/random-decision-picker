@@ -263,7 +263,7 @@ function spin() {
       wheelHint.textContent = 'Tap Spin to decide again';
 
       const winner = state.options[winnerIndex];
-      setTimeout(() => showResult(winner), 400);
+      showResult(winner);
     }
   }
 
@@ -425,12 +425,27 @@ function getBeepUri(frequency, durationSec, volume = 0.4) {
   return beepUriCache.get(key);
 }
 
-function playMobileBeep(frequency, durationSec = 0.08, volume = 0.5) {
+let mobileAudio = null;
+let lastMobileBeepAt = 0;
+
+function playMobileBeep(frequency, durationSec = 0.06, volume = 0.22) {
   if (!state.soundEnabled) return;
-  const audio = new Audio(getBeepUri(frequency, durationSec, volume));
-  audio.volume = 1;
-  audio.setAttribute('playsinline', '');
-  audio.play().catch(() => {});
+
+  const now = performance.now();
+  if (now - lastMobileBeepAt < 55) return;
+  lastMobileBeepAt = now;
+
+  if (!mobileAudio) {
+    mobileAudio = new Audio();
+    mobileAudio.setAttribute('playsinline', '');
+    mobileAudio.preload = 'auto';
+  }
+
+  mobileAudio.pause();
+  mobileAudio.currentTime = 0;
+  mobileAudio.src = getBeepUri(frequency, durationSec, volume);
+  mobileAudio.volume = 0.9;
+  mobileAudio.play().catch(() => {});
 }
 
 function unlockAudioSync() {
@@ -465,30 +480,25 @@ function clearSpinSoundTimeouts() {
 
 function scheduleMobileSpinAudio({ durationMs, segmentDeg, startRotation, totalRotation }) {
   clearSpinSoundTimeouts();
-  playMobileBeep(280, 0.1, 0.55);
+  lastMobileBeepAt = 0;
+  playMobileBeep(300, 0.07, 0.28);
 
-  let lastSeg = Math.floor((((startRotation % 360) + 360) % 360) / segmentDeg);
-  const steps = Math.ceil(durationMs / 40);
-
-  for (let i = 0; i <= steps; i++) {
-    const progress = i / steps;
+  // Fewer ticks, spaced by easing — avoids overlapping beeps that distort on iOS
+  const tickCount = 12;
+  for (let i = 0; i < tickCount; i++) {
+    const progress = (i + 1) / (tickCount + 1);
     const eased = easeOutCubic(progress);
-    const rot = startRotation + (totalRotation - startRotation) * eased;
-    const norm = ((rot % 360) + 360) % 360;
-    const seg = Math.floor(norm / segmentDeg);
-
-    if (seg !== lastSeg) {
-      lastSeg = seg;
-      const delay = progress * durationMs;
-      const freq = 480 + Math.random() * 120;
-      spinSoundTimeouts.push(setTimeout(() => playMobileBeep(freq, 0.07, 0.45), delay));
-    }
+    const delay = eased * durationMs;
+    const freq = 420 + i * 18;
+    spinSoundTimeouts.push(setTimeout(() => playMobileBeep(freq, 0.035, 0.2), delay));
   }
 
-  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+  // Win chime right when spin ends — notes play one after another, not stacked
+  const winAt = durationMs + 30;
+  [523.25, 659.25, 783.99].forEach((freq, i) => {
     spinSoundTimeouts.push(setTimeout(
-      () => playMobileBeep(freq, 0.28, 0.55),
-      durationMs + 400 + i * 100,
+      () => playMobileBeep(freq, 0.16, 0.26),
+      winAt + i * 130,
     ));
   });
 }
@@ -546,12 +556,12 @@ function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotatio
     }
   }
 
-  const winAt = base + durationSec + 0.4;
-  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
-    playToneAt(winAt + i * 0.1, {
+  const winAt = base + durationSec + 0.03;
+  [523.25, 659.25, 783.99].forEach((freq, i) => {
+    playToneAt(winAt + i * 0.12, {
       frequency: freq,
-      duration: 0.28,
-      volume: 0.28,
+      duration: 0.2,
+      volume: 0.22,
       type: 'sine',
     });
   });
@@ -559,8 +569,9 @@ function scheduleSpinAudio({ durationMs, segmentDeg, startRotation, totalRotatio
 
 function playTestSound() {
   unlockAudioSync();
+  lastMobileBeepAt = 0;
   if (useMobileAudio()) {
-    playMobileBeep(440, 0.15, 0.6);
+    playMobileBeep(440, 0.1, 0.3);
   } else {
     const ac = getAudioCtx();
     if (ac) ac.resume().then(() => playSpinStartSound());
